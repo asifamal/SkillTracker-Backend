@@ -7,16 +7,64 @@ from django.db.models import Sum, Count
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 
+# --- Heuristic auto-categorization utilities ---
+CATEGORY_KEYWORDS = [
+    ("Frontend", ["react", "vue", "angular", "html", "css", "tailwind", "typescript", "javascript", "next.js", "vite"]),
+    ("Backend", ["django", "rest api", "node", "express", "fastapi", "spring", "laravel", "flask", "api"]),
+    ("Data", ["pandas", "numpy", "data analysis", "etl", "excel", "power bi"]),
+    ("AI/ML", ["machine learning", "deep learning", "pytorch", "tensorflow", "sklearn", "nlp", "llm"]),
+    ("Databases", ["sql", "postgres", "mysql", "sqlite", "mongodb", "redis"]),
+    ("DevOps", ["docker", "kubernetes", "ci/cd", "terraform", "aws", "gcp", "azure", "ansible"]),
+    ("Mobile", ["react native", "flutter", "android", "ios", "kotlin", "swift"]),
+    ("Testing", ["jest", "pytest", "cypress", "playwright", "unit test", "integration test"]),
+    ("Languages", ["python", "java", "c#", "go", "rust", "typescript", "javascript"]),
+]
+
+PLATFORM_HINTS = {
+    'YouTube': 'Frontend',
+    'Udemy': 'Languages',
+    'Coursera': 'AI/ML',
+    'edX': 'AI/ML',
+}
+
+def normalize_text(*parts):
+    return " ".join([str(p or "").lower() for p in parts])
+
+def categorize_skill_content(skill_name: str = None, platform: str = None, notes: str = None):
+    text = normalize_text(skill_name, platform, notes)
+    # Platform hint first
+    if platform and platform in PLATFORM_HINTS:
+        return PLATFORM_HINTS[platform]
+    # Keyword matching
+    for cat, keywords in CATEGORY_KEYWORDS:
+        for kw in keywords:
+            if kw in text:
+                return cat
+    # Fallbacks
+    if 'course' in text or 'video' in text:
+        return 'Languages'
+    return 'General'
+
 # Create your views here.
 class SkillGoalListView(APIView):
     def get(self, request):
         try:
-            skills = SkillGoal.objects.all().values(
-                'id', 'skill_name', 'resource_type', 'platform', 'status', 'hours_spent', 'notes', 'difficulty_rating'
-            )
-            skills_list = list(skills)
-            if skills_list:
-                return Response({'status': 1, 'data': skills_list})
+            skills_qs = SkillGoal.objects.all()
+            skills = []
+            for s in skills_qs:
+                skills.append({
+                    'id': s.id,
+                    'skill_name': s.skill_name,
+                    'resource_type': s.resource_type,
+                    'platform': s.platform,
+                    'status': s.status,
+                    'hours_spent': s.hours_spent,
+                    'notes': s.notes,
+                    'difficulty_rating': s.difficulty_rating,
+                    'category': categorize_skill_content(s.skill_name, s.platform, s.notes),
+                })
+            if skills:
+                return Response({'status': 1, 'data': skills})
             return Response({'status': 0, 'message': 'No skills found'})
         except Exception as e:
             return Response({'status': 0, 'message': 'Error occurred in server'})
@@ -47,7 +95,7 @@ class SkillGoalCreateView(APIView):
             except Exception:
                 # Don't block creation if activity log fails
                 pass
-            return Response({'status': 1, 'id': skill.id})
+            return Response({'status': 1, 'id': skill.id, 'category': categorize_skill_content(skill.skill_name, skill.platform, skill.notes)})
         except Exception as e:
             return Response({'status': 0, 'message': 'Error occurred in server'})
 
@@ -69,6 +117,7 @@ class SkillGoalDetailView(APIView):
                 'hours_spent': skill.hours_spent,
                 'notes': skill.notes,
                 'difficulty_rating': skill.difficulty_rating,
+                'category': categorize_skill_content(skill.skill_name, skill.platform, skill.notes),
             }
             return Response({'status': 1, 'data': data})
         except SkillGoal.DoesNotExist:
@@ -108,7 +157,7 @@ class SkillGoalUpdateProgressView(APIView):
                             date=today,
                             title='Updated Hours',
                             hours=max(delta, 0),
-                            notes=f"Total: {after_hours}h" + (f" | {data.get('notes')}" if data.get('notes') else ''),
+                            notes=f"Total: {after_hours}h" + (f" | {data.get('notes') if data.get('notes') else ''}"),
                         )
                     # Log status change
                     if 'status' in data and int(skill.status) != before_status:
@@ -132,7 +181,7 @@ class SkillGoalUpdateProgressView(APIView):
                 except Exception:
                     # Avoid breaking update on activity log issues
                     pass
-                return Response({'status': 1, 'message': 'Skill progress updated successfully'})
+                return Response({'status': 1, 'message': 'Skill progress updated successfully', 'category': categorize_skill_content(skill.skill_name, skill.platform, skill.notes)})
             else:
                 return HttpResponseBadRequest('No valid fields provided for update')
 
@@ -231,3 +280,13 @@ class TimelineView(APIView):
             return Response({'status': 1, 'id': activity.id})
         except Exception:
             return Response({'status': 0, 'message': 'Error occurred in server'})
+
+
+class CategorizeView(APIView):
+    def post(self, request):
+        data = request.data or {}
+        name = data.get('skill_name') or data.get('name')
+        platform = data.get('platform')
+        notes = data.get('notes')
+        category = categorize_skill_content(name, platform, notes)
+        return Response({'status': 1, 'category': category})

@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import DashboardView, SkillGoalCreateView, SkillGoalDeleteView, SkillGoalDetailView, SkillGoalListView, SkillGoalUpdateProgressView, TimelineView
+from .views import DashboardView, SkillGoalCreateView, SkillGoalDeleteView, SkillGoalDetailView, SkillGoalListView, SkillGoalUpdateProgressView, TimelineView, CategorizeView
 
 urlpatterns = [
     path('list_skills/', SkillGoalListView.as_view(), name='list_skills'),
@@ -9,4 +9,5 @@ urlpatterns = [
     path('delete_skill/<int:pk>/', SkillGoalDeleteView.as_view(), name='skill_delete'),
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
     path('timeline/', TimelineView.as_view(), name='timeline'),
+    path('categorize/', CategorizeView.as_view(), name='categorize'),
 ]
