@@ -39,8 +39,8 @@ class SkillGoalCreateView(APIView):
 
 
 class SkillGoalDetailView(APIView):
-    def get(self, request):
-        skill_id = request.query_params.get('id')
+    def get(self, request, pk=None):
+        skill_id = pk or request.query_params.get('id')
         if not skill_id:
             return Response({'status': 0, 'message': 'ID parameter is required'})
 
