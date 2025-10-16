@@ -7,7 +7,6 @@ from django.db.models import Sum, Count
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 
-# --- Heuristic auto-categorization utilities ---
 CATEGORY_KEYWORDS = [
     ("Frontend", ["react", "vue", "angular", "html", "css", "tailwind", "typescript", "javascript", "next.js", "vite"]),
     ("Backend", ["django", "rest api", "node", "express", "fastapi", "spring", "laravel", "flask", "api"]),
@@ -32,20 +31,16 @@ def normalize_text(*parts):
 
 def categorize_skill_content(skill_name: str = None, platform: str = None, notes: str = None):
     text = normalize_text(skill_name, platform, notes)
-    # Platform hint first
     if platform and platform in PLATFORM_HINTS:
         return PLATFORM_HINTS[platform]
-    # Keyword matching
     for cat, keywords in CATEGORY_KEYWORDS:
         for kw in keywords:
             if kw in text:
                 return cat
-    # Fallbacks
     if 'course' in text or 'video' in text:
         return 'Languages'
     return 'General'
 
-# Create your views here.
 class SkillGoalListView(APIView):
     def get(self, request):
         try:
@@ -83,7 +78,6 @@ class SkillGoalCreateView(APIView):
                 notes=data.get('notes', ''),
                 difficulty_rating=data.get('difficulty_rating', 1),
             )
-            # Log an initial learning activity for timeline/calendar
             try:
                 LearningActivity.objects.create(
                     skill=skill,
@@ -93,7 +87,6 @@ class SkillGoalCreateView(APIView):
                     notes=data.get('notes', '') or '',
                 )
             except Exception:
-                # Don't block creation if activity log fails
                 pass
             return Response({'status': 1, 'id': skill.id, 'category': categorize_skill_content(skill.skill_name, skill.platform, skill.notes)})
         except Exception as e:
@@ -133,7 +126,6 @@ class SkillGoalUpdateProgressView(APIView):
 
             allowed_fields = ['status', 'hours_spent', 'notes', 'difficulty_rating']
 
-            # Capture previous values for logging
             before_hours = float(skill.hours_spent or 0)
             before_status = int(skill.status)
 
@@ -145,10 +137,8 @@ class SkillGoalUpdateProgressView(APIView):
             
             if updated:
                 skill.save()
-                # Create timeline activities for meaningful changes
                 try:
                     today = timezone.now().date()
-                    # Log hours change if increased
                     after_hours = float(skill.hours_spent or 0)
                     delta = after_hours - before_hours
                     if 'hours_spent' in data and abs(delta) > 0:
@@ -159,7 +149,6 @@ class SkillGoalUpdateProgressView(APIView):
                             hours=max(delta, 0),
                             notes=f"Total: {after_hours}h" + (f" | {data.get('notes') if data.get('notes') else ''}"),
                         )
-                    # Log status change
                     if 'status' in data and int(skill.status) != before_status:
                         status_label = dict(SkillGoal.SKILL_STATUS).get(int(skill.status), str(skill.status))
                         LearningActivity.objects.create(
@@ -169,7 +158,6 @@ class SkillGoalUpdateProgressView(APIView):
                             hours=0,
                             notes=data.get('notes', ''),
                         )
-                    # Log notes-only update if provided without hours/status
                     if 'notes' in data and not ('hours_spent' in data or 'status' in data):
                         LearningActivity.objects.create(
                             skill=skill,
@@ -179,7 +167,6 @@ class SkillGoalUpdateProgressView(APIView):
                             notes=data.get('notes', ''),
                         )
                 except Exception:
-                    # Avoid breaking update on activity log issues
                     pass
                 return Response({'status': 1, 'message': 'Skill progress updated successfully', 'category': categorize_skill_content(skill.skill_name, skill.platform, skill.notes)})
             else:
@@ -236,7 +223,6 @@ class DashboardView(APIView):
 
 class TimelineView(APIView):
     def get(self, request):
-        # Optional filters: ?skill=<id>&from=YYYY-MM-DD&to=YYYY-MM-DD
         skill_id = request.query_params.get('skill')
         from_str = request.query_params.get('from')
         to_str = request.query_params.get('to')

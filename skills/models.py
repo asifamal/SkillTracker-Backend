@@ -1,6 +1,5 @@
 from django.db import models
 
-# Create your models here.
 class SkillGoal(models.Model):
     SKILL_STATUS = (
         (1, 'Started'),
