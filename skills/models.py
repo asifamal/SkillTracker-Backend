@@ -23,3 +23,17 @@ class SkillGoal(models.Model):
 
     def __str__(self):
         return f"{self.skill_name} [{self.get_resource_type_display()}]"
+
+
+class LearningActivity(models.Model):
+    skill = models.ForeignKey(SkillGoal, on_delete=models.CASCADE, related_name='activities')
+    date = models.DateField()
+    title = models.CharField(max_length=150)
+    hours = models.FloatField(default=0)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-date', '-id']
+
+    def __str__(self):
+        return f"{self.date} - {self.title} ({self.hours}h)"

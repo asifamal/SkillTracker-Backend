@@ -2,8 +2,10 @@ import json
 from django.http import HttpResponseBadRequest
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .models import SkillGoal
+from .models import SkillGoal, LearningActivity
 from django.db.models import Sum, Count
+from django.utils.dateparse import parse_date
+from django.utils import timezone
 
 # Create your views here.
 class SkillGoalListView(APIView):
@@ -33,6 +35,18 @@ class SkillGoalCreateView(APIView):
                 notes=data.get('notes', ''),
                 difficulty_rating=data.get('difficulty_rating', 1),
             )
+            # Log an initial learning activity for timeline/calendar
+            try:
+                LearningActivity.objects.create(
+                    skill=skill,
+                    date=timezone.now().date(),
+                    title='Created Skill',
+                    hours=float(data.get('hours_spent', 0) or 0),
+                    notes=data.get('notes', '') or '',
+                )
+            except Exception:
+                # Don't block creation if activity log fails
+                pass
             return Response({'status': 1, 'id': skill.id})
         except Exception as e:
             return Response({'status': 0, 'message': 'Error occurred in server'})
@@ -70,6 +84,10 @@ class SkillGoalUpdateProgressView(APIView):
 
             allowed_fields = ['status', 'hours_spent', 'notes', 'difficulty_rating']
 
+            # Capture previous values for logging
+            before_hours = float(skill.hours_spent or 0)
+            before_status = int(skill.status)
+
             updated = False
             for field in allowed_fields:
                 if field in data:
@@ -78,6 +96,42 @@ class SkillGoalUpdateProgressView(APIView):
             
             if updated:
                 skill.save()
+                # Create timeline activities for meaningful changes
+                try:
+                    today = timezone.now().date()
+                    # Log hours change if increased
+                    after_hours = float(skill.hours_spent or 0)
+                    delta = after_hours - before_hours
+                    if 'hours_spent' in data and abs(delta) > 0:
+                        LearningActivity.objects.create(
+                            skill=skill,
+                            date=today,
+                            title='Updated Hours',
+                            hours=max(delta, 0),
+                            notes=f"Total: {after_hours}h" + (f" | {data.get('notes')}" if data.get('notes') else ''),
+                        )
+                    # Log status change
+                    if 'status' in data and int(skill.status) != before_status:
+                        status_label = dict(SkillGoal.SKILL_STATUS).get(int(skill.status), str(skill.status))
+                        LearningActivity.objects.create(
+                            skill=skill,
+                            date=today,
+                            title=f"Status: {status_label}",
+                            hours=0,
+                            notes=data.get('notes', ''),
+                        )
+                    # Log notes-only update if provided without hours/status
+                    if 'notes' in data and not ('hours_spent' in data or 'status' in data):
+                        LearningActivity.objects.create(
+                            skill=skill,
+                            date=today,
+                            title='Notes Updated',
+                            hours=0,
+                            notes=data.get('notes', ''),
+                        )
+                except Exception:
+                    # Avoid breaking update on activity log issues
+                    pass
                 return Response({'status': 1, 'message': 'Skill progress updated successfully'})
             else:
                 return HttpResponseBadRequest('No valid fields provided for update')
@@ -129,3 +183,51 @@ class DashboardView(APIView):
             'top_skills': list(top_skills),
             'platform_breakdown': list(platform_breakdown),
         })
+
+
+class TimelineView(APIView):
+    def get(self, request):
+        # Optional filters: ?skill=<id>&from=YYYY-MM-DD&to=YYYY-MM-DD
+        skill_id = request.query_params.get('skill')
+        from_str = request.query_params.get('from')
+        to_str = request.query_params.get('to')
+
+        qs = LearningActivity.objects.select_related('skill').all()
+        if skill_id:
+            qs = qs.filter(skill_id=skill_id)
+        if from_str:
+            d = parse_date(from_str)
+            if d:
+                qs = qs.filter(date__gte=d)
+        if to_str:
+            d = parse_date(to_str)
+            if d:
+                qs = qs.filter(date__lte=d)
+
+        activities = [
+            {
+                'id': a.id,
+                'skill_id': a.skill_id,
+                'skill_name': a.skill.skill_name,
+                'date': a.date.isoformat(),
+                'title': a.title,
+                'hours': a.hours,
+                'notes': a.notes,
+            }
+            for a in qs.order_by('-date', '-id')[:500]
+        ]
+        return Response({'status': 1, 'data': activities})
+
+    def post(self, request):
+        try:
+            data = request.data
+            activity = LearningActivity.objects.create(
+                skill_id=data.get('skill_id'),
+                date=data.get('date'),
+                title=data.get('title'),
+                hours=data.get('hours', 0),
+                notes=data.get('notes', ''),
+            )
+            return Response({'status': 1, 'id': activity.id})
+        except Exception:
+            return Response({'status': 0, 'message': 'Error occurred in server'})
